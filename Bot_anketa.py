@@ -7,6 +7,7 @@ from keyboards import *
 from config import *
 from sqlite_bot.sqlite import *
 
+
 #запуск базы данных(создание)
 async def on_startup(_):
     await db_start()
@@ -426,7 +427,8 @@ async def delete_ads_all_cmd(message: types.Message):
 
 #######################################   Бот для общего чата(не доделано)   ####################################
 #функция для приема ответов пользователя, ответ дается с спецсимволом в начале
-@dp.message_handler()
+
+
 async def answer(message: types.Message):
     global count_zp
     if message.text[0] == '*':
@@ -437,7 +439,78 @@ async def answer(message: types.Message):
             await bot.send_message(message.from_user.id, text="Вы уже получили награду за этот вопрос")
         count_zp += 1
 
+#функция для вывода вопроса в определённое время
+import datetime
+import asyncio
+from config import DESC_REMINDER
+import re
+
+group_id = 0
+count_desc = 0
+class question(StatesGroup):
+    q1 = State()
+    q2 = State()
+@dp.message_handler(commands=['start_remind'])
+async def host_f(message: types.Message):
+    global group_id
+    group_id = message.chat.id      #запоминаем id группы
+@dp.message_handler(Text(equals='Создать напоминание', ignore_case=True), state = None)
+async def start_com(message: types.Message):
+    global count_desc
+    if message.from_user.id != admin_id:    #проверка на админа
+        await message.answer("У вас недостаточно прав для этой операции")
+        return 0
+    if count_desc == 0:
+        await message.answer(text=DESC_REMINDER)
+        count_desc += 1
+    await question.q1.set()
+    await message.answer(text="Введите напоминание")
+@dp.message_handler(state = question.q1)
+async def que1(message: types.Message, state: FSMContext):
+    async with state.proxy() as data:
+        data['q1'] = message.text
+    await question.next()
+    await message.answer(text="Введите дату напоминания в формате ДД/ММ/ГГ ЧЧ:ММ (Пр: 01/01/22 09:45)")
+
+@dp.message_handler(state = question.q2)
+async def que2(message: types.Message, state: FSMContext):
+    global group_id
+    reg = r"([0-9][0-9])/([0-9][0-9])/([0-9][0-9]) ([0-9][0-9]):([0-9][0-9])" #регулярное выражение для проверки даты
+    if re.fullmatch(reg, message.text):
+        async with state.proxy() as data:
+            date_time = datetime.datetime.strptime(message.text, "%d/%m/%y %H:%M")
+            dtp = date_time.timestamp() #планируемая дата в секундах
+    else:
+        await message.answer(text="Ошибка, введите корректную дату")
+        return 0
+    await state.finish()
+
+    today = datetime.datetime.today()
+    dty = datetime.datetime.today().timestamp() #текущая дата в секундах
+
+    if dty >= dtp:
+        await message.answer(text="Ошибка, нажмите (Создать напоминание) и введите корректную дату") #проверка на прошедшую дату
+        return 0
+
+    await message.answer(text="Напоминание создано")
+
+    delta_s = int(dtp - dty - 1) #разница дат в секундах
+
+    await asyncio.sleep(delta_s) #функция неактивна, пока разница между датами не равна 0
+
+    today = datetime.datetime.today()
+
+    while True:
+        if date_time > today:
+            today = datetime.datetime.today()
+        else:
+            await bot.send_message(chat_id=group_id,
+                                   text=data['q1'])
+            break
+
 if __name__ == '__main__':
     executor.start_polling(dp,
                            skip_updates=True,
                            on_startup=on_startup)
+
+

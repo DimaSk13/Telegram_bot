@@ -13,7 +13,8 @@ def get_admin_keyboard() -> ReplyKeyboardMarkup:
     kb = ReplyKeyboardMarkup(resize_keyboard=True)
     b1 = KeyboardButton('Создать объявление')
     b2 = KeyboardButton('Начислить баллы')
-    kb.add(b1).add(b2)
+    b3 = KeyboardButton('Создать напоминание') ###
+    kb.add(b1).add(b2).add(b3)
     return kb
 
 #создания inline клавиатуры(кнопки закреплены за конкретным сообщением)
