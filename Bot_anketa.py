@@ -7,6 +7,11 @@ from keyboards import *
 from config import *
 from sqlite_bot.sqlite import *
 from aiogram.types import InputFile
+from random import randint
+
+import datetime
+import asyncio
+from config import DESC_REMINDER
 
 #запуск базы данных(создание)
 async def on_startup(_):
@@ -19,7 +24,7 @@ dp = Dispatcher(bot= bot, storage=storage)
 
 #значения, которые будут задваться с аккаунта администратора
 start_score = 10
-question_text = 'Как прошел твой день?'
+
 
 #создание класса для состояний(анкета)
 class Anketa_states_group(StatesGroup):
@@ -54,10 +59,19 @@ class New_password(StatesGroup):
 class Delete_ads(StatesGroup):
     num_ads = State()
 
+#создание напоминаний
+class question(StatesGroup):
+    q1 = State()
+    q2 = State()
+
+group_id = 0
+count_desc = 0
+count_remind = 0
+
 #######################################   Обработчики вспомогательных команд   ####################################
 #действия при команде старт
 count_start = 0
-admin_id = 11111111111 #id администратора бота(HR)
+admin_id = 0 #id администратора бота(HR)
 
 @dp.message_handler(commands=['start'])
 async def start_command(message: types.Message) -> None:
@@ -75,6 +89,16 @@ async def start_command(message: types.Message) -> None:
             count_start += 1
         await message.answer(text=START, reply_markup=get_keyboard())
         await message.delete()
+    await bot.send_sticker(message.chat.id,
+                           sticker="CAACAgIAAxkBAAEGbuljc84s_rVQgwxv4EFXsNNHVkhV6QACpR0AArFpoEvs_tAZAQwhJysE")
+
+@dp.message_handler(commands=['start_remind'])      #запоминаем id группы
+async def host_f(message: types.Message):
+    global group_id
+    global count_remind
+    if count_remind == 0:
+        group_id = message.chat.id
+        count_remind += 1
 
 #отмена заполнения анкеты, сброс состояний
 @dp.message_handler(Text(equals='Отменить заполнение анкеты', ignore_case=True), state='*')
@@ -111,11 +135,10 @@ async def delete_command(message: types.Message):
 #вызов функционала бота
 @dp.message_handler(commands=['help'])
 async def help_command(message: types.Message):
-    await message.reply(HELP_LIST, parse_mode='HTML')
-
-@dp.message_handler(commands=['help_admin'])
-async def help_admin_cmd(message: types.Message):
-    await message.reply(HELP_ADMIN_LIST, parse_mode='HTML')
+    if message.from_user.id == admin_id:
+        await message.reply(HELP_ADMIN_LIST, parse_mode='HTML')
+    else:
+        await message.reply(HELP_LIST, parse_mode='HTML')
 
 #вызов описания бота
 @dp.message_handler(commands=['description'])
@@ -158,12 +181,13 @@ async def all_db_cmd(message: types.Message):
                 for j in range(len(db_list_all[i])):
                     f.write(''.join(db_list_all[i][j]) + ' ')
                 f.write('\n')
+                f.write('\n')
         await message.answer_document(InputFile('all_db.txt'))
     else:
         await message.answer('У вас недостаточно прав для этой операции(')
 
 #смена клавиатуры для админа
-@dp.message_handler(commands=['admin_keyboard'])
+@dp.message_handler(Text(equals='клавиатура админ', ignore_case=True))
 async def key(message: types.Message):
     if message.from_user.id == admin_id:
         await message.answer('Вы перешли на клавиатуру для администратора!',
@@ -171,11 +195,11 @@ async def key(message: types.Message):
     else:
         await message.answer('У вас недостаточно прав для этой операции(')
 
-@dp.message_handler(commands=['user_keyboard'])
+@dp.message_handler(Text(equals='клавиатура пользователь', ignore_case=True))
 async def key(message: types.Message):
     if message.from_user.id == admin_id:
         await message.answer('Вы перешли на клавиатуру для пользователя!',
-                             reply_markup=get_keyboard())
+                             reply_markup=get_keyboard_user_admin())
     else:
         await message.answer('У вас недостаточно прав для этой операции(')
 
@@ -188,22 +212,25 @@ count_zp = 0
 @dp.message_handler(Text(equals='Найти друга!', ignore_case=True))
 async def rec_command(message: types.Message):
     global count
-    now_balans = balans_inf(user_id=message.from_user.id)
-    if now_balans >= start_score:
-        waste(user_id=message.from_user.id)
-        await bot.send_message(message.from_user.id, text='С вашего счета списано 10 валют!')
-        if type(rec(user_id=message.from_user.id, count=count)) == str:     #если мы отправляем строку, значит дошли до конца в списке анкет, предупреждаем польхователя, обнуляем счетчик и начинаем сначала
-            await message.answer(text=rec(user_id=message.from_user.id, count=count))
-            count = 0
-        else:   #если тип не строчный(список), то собираем и отправляем анкету, увеличивая счетчик
-            m = rec(user_id=message.from_user.id, count=count)
-            await bot.send_photo(message.from_user.id,
-                                 photo=m[1],
-                                 caption=f'{m[2]}, {m[3]}\n{m[4]}',
-                                 reply_markup=get_inline_keyboard_rec(m[5]))
-            count += 1
+    if balans_inf(user_id=message.from_user.id)== -1:
+        await message.answer('Для начала создайте анкету')
     else:
-        await bot.send_message(message.from_user.id, text='На счету не хватает денег, видимо пора отвечать на вопросы в общем чате!')
+        now_balans = balans_inf(user_id=message.from_user.id)
+        if now_balans >= start_score:
+            if type(rec(user_id=message.from_user.id, count=count)) == str:     #если мы отправляем строку, значит дошли до конца в списке анкет, предупреждаем польхователя, обнуляем счетчик и начинаем сначала
+                await message.answer(text=rec(user_id=message.from_user.id, count=count))
+                count = 0
+            else:   #если тип не строчный(список), то собираем и отправляем анкету, увеличивая счетчик
+                waste(user_id=message.from_user.id)
+                await bot.send_message(message.from_user.id, text='С вашего счета списано 10 валют!')
+                m = rec(user_id=message.from_user.id, count=count)
+                await bot.send_photo(message.from_user.id,
+                                     photo=m[1],
+                                     caption=f'{m[2]}, {m[3]}\n{m[4]}',
+                                     reply_markup=get_inline_keyboard_rec(m[5]))
+                count += 1
+        else:
+            await bot.send_message(message.from_user.id, text='На счету не хватает денег, видимо пора отвечать на вопросы в общем чате!')
 
 #рекомендация объявлений
 count_ads = 0 #кол-во просмотров объявлений
@@ -228,17 +255,20 @@ async def rec_command_ads(message: types.Message):
 async def buy_ads(call: types.CallbackQuery):
     now_balans = balans_inf(user_id=call.from_user.id)
     if now_balans >= price(count_ads=count_ads - 1):
-        await call.message.answer('Покупка совершена!')
-        change_data(count_ads=count_ads - 1 , user_id=call.from_user.id)
-        await call.message.answer(f'С вашего счета списано {price(count_ads=count_ads - 1)}')
-        await bot.send_message(admin_id, f'{name(user_id=call.from_user.id)} купил  этот товар!')
-        m = rec_ads(count_ads - 1)
-        await bot.send_photo(call.from_user.id,
-                             photo=m[1],
-                             caption=f'{m[2]}\nЦена: {m[3]}\nКоличество: {m[4]}'
-                             )
-        await count_product(num(count_ads=count_ads-1))
-        print(num(count_ads=count_ads-1))
+        if admin_id != 0:
+            await call.message.answer('Покупка совершена!')
+            change_data(count_ads=count_ads - 1, user_id=call.from_user.id)
+            await call.message.answer(f'С вашего счета списано {price(count_ads=count_ads - 1)}')
+            string = "<a href=" + f'"{tg_url(user_id=call.from_user.id)}"' + '>'+ f'{name(user_id=call.from_user.id)}' + '</a> купил этот товар!'
+            await bot.send_message(admin_id, string, parse_mode='HTML')
+            m = rec_ads(count_ads - 1)
+            await bot.send_photo(admin_id,
+                                 photo=m[1],
+                                 caption=f'{m[2]}\nЦена: {m[3]}\nКоличество: {m[4]}'
+                                 )
+            await count_product(num(count_ads=count_ads-1))
+        else:
+            await call.message.answer('Администратор пока не авторизован, попробуйте позже')
     else:
         await call.message.answer('У вас недостаточно средств')
 
@@ -246,7 +276,7 @@ async def buy_ads(call: types.CallbackQuery):
 #СДЕЛАТЬ НОВЫЙ КЛЮЧ ДЛЯ ТАБЛИЦЫ ОБЪЯВЛЕНИЙ (нужно избавиться от счетчиков в коде)
 
 @dp.message_handler(Text(equals='Создать объявление', ignore_case=True), state=None)
-async def start_ad(message: types.Message, state: FSMContext) -> None:
+async def start_ad(message: types.Message) -> None:
     if message.from_user.id == admin_id:
         await Ads_states_group.photo.set()
         await create_ads()
@@ -297,7 +327,7 @@ async def load_count_product_ads(message: types.Message, state: FSMContext):
 
 #начинаем создавать анкету
 @dp.message_handler(Text(equals='Заполнить анкету', ignore_case=True), state=None)
-async def start_anketa(message: types.Message,  state: FSMContext) -> None:
+async def start_anketa(message: types.Message) -> None:
     await Anketa_states_group.photo.set()
     await create_profile(user_id=message.from_user.id)
     await message.answer('Отправь мне свое фото', reply_markup=get_cancel_anketa())
@@ -359,7 +389,7 @@ async def load_url(message: types.Message, state: FSMContext):
 #######################################   Вход в акк админа   ####################################
 
 @dp.message_handler(Text(equals='Войти', ignore_case=True), state=None)
-async def enter(message: types.Message,  state: FSMContext) -> None:
+async def enter(message: types.Message) -> None:
     await Entrance.password.set()
     await message.answer('Введите пароль')
 
@@ -372,7 +402,7 @@ async def check_password(message: types.Message, state: FSMContext):
         if admin_name == 'Вы не авторизованы, заполните анкету':
             await message.answer(admin_name)
         else:
-            await message.answer(f'{admin_name}, вы вошли в аккаунт администратора, введите "/help_admin", чтобы подробнее узнать о ваших возможностях',
+            await message.answer(f'{admin_name}, вы вошли в аккаунт администратора, введите "/help", чтобы подробнее узнать о ваших возможностях',
                                  reply_markup=get_admin_keyboard())
             admin_id = message.from_user.id
     else:
@@ -455,18 +485,89 @@ async def delete_ads_all_cmd(message: types.Message):
     else:
         await message.answer('У вас недостаточно прав для этой операции(')
 
-#######################################   Бот для общего чата(не доделано)   ####################################
-#функция для приема ответов пользователя, ответ дается с спецсимволом в начале
-@dp.message_handler()
-async def answer(message: types.Message):
-    global count_zp
-    if message.text[0] == '*':
-        if count_zp == 0:
-            answer_question(user_id=message.from_user.id, count_zp=count_zp)
-            await bot.send_message(message.from_user.id, text='Вам начислено 10 баллов за ответ на вопрос!')
+
+#######################################   создание напоминания   ####################################
+@dp.message_handler(Text(equals='Создать напоминание', ignore_case=True), state = None)
+async def start_com(message: types.Message):
+    global count_desc
+    if message.from_user.id != admin_id:    #проверка на админа
+        await message.answer("У вас недостаточно прав для этой операции")
+        return 0
+    if count_desc == 0:
+        await message.answer(text=DESC_REMINDER)
+        count_desc += 1
+    await question.q1.set()
+    await message.answer(text="Введите напоминание")
+
+@dp.message_handler(state = question.q1)
+async def que1(message: types.Message, state: FSMContext):
+    async with state.proxy() as data:
+        data['q1'] = message.text
+    await question.next()
+    await message.answer(text="Введите дату напоминания в формате ДД/ММ/ГГ ЧЧ:ММ (Пр: 01/01/22 09:45)")
+
+@dp.message_handler(state = question.q2)
+async def que2(message: types.Message, state: FSMContext):
+    global group_id
+    global count_answer
+    count_answer = 0
+    async with state.proxy() as data:
+        try:
+            date_time = datetime.datetime.strptime(message.text, "%d/%m/%y %H:%M")
+            dtp = date_time.timestamp() #планируемая дата в секундах
+
+            today = datetime.datetime.today()
+            dty = datetime.datetime.today().timestamp()  # текущая дата в секундах
+
+            if dty >= dtp:
+                await message.answer(
+                    text="Ошибка, введите корректную дату")  # проверка на прошедшую дату
+                return 0
+
+        except:
+            await message.answer(text="Ошибка, введите корректную дату")
+            return 0
+
+    await state.finish()
+
+    await message.answer(text="Напоминание создано")
+
+    delta_s = int(dtp - dty - 1) #разница дат в секундах
+
+    await asyncio.sleep(delta_s) #функция неактивна, пока разница между датами не равна 0
+
+    today = datetime.datetime.today()
+
+    while True:
+        if date_time > today:
+            today = datetime.datetime.today()
         else:
-            await bot.send_message(message.from_user.id, text="Вы уже получили награду за этот вопрос")
-        count_zp += 1
+            await bot.send_message(chat_id=group_id,
+                                   text=data['q1'])
+            break
+
+#ответ рандомным стикером на стикер
+@dp.message_handler(content_types=['sticker'])
+async def stick_answer(message: types.Message):
+    if message.chat.id != group_id:
+        num = randint(0, len(sticker_id) - 1)
+        await bot.send_sticker(message.from_user.id, sticker_id[num])
+
+#######################################   Реакция на неопознанную команду   ####################################
+@dp.message_handler()
+async def not_command(message: types.Message):
+    global group_id
+    global count_zp
+    if message.chat.id != group_id:
+        await bot.send_sticker(message.chat.id, sticker="CAACAgIAAxkBAAEGbrljc8C0JFrg7ORz_e3KDUSA-PwJLwACoCEAAuiCoUt66qBRIJCCSisE")
+    else:
+        if message.text[0] == '*':
+            if count_zp < 10:
+                answer_question(user_id=message.from_user.id, count_zp=count_zp)
+                await bot.send_message(message.from_user.id, text='Вам начислено 10 баллов за ответ на вопрос!')
+            else:
+                await bot.send_message(message.from_user.id, text="Вы уже получили награду за этот вопрос")
+            count_zp += 1
 
 if __name__ == '__main__':
     executor.start_polling(dp,
